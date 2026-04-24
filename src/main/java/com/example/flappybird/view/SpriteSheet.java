@@ -1,64 +1,58 @@
 package com.example.flappybird.view;
 
-/**
- * VIEW helper — all resource path constants.
- *
- * Mirrors every texture/sound path referenced in the original C++ project.
- * Paths are relative to /com/example/flappybird/ in src/main/resources.
- */
 public final class SpriteSheet {
     private SpriteSheet() {}
 
     // Bird sprites  (3 types × 3 frames)
     public static final String[] BIRD_UP = {
-        "/com/example/flappybird/Picture/yellowbird-upflap.png",
-        "/com/example/flappybird/Picture/redbird-upflap.png",
-        "/com/example/flappybird/Picture/bluebird-upflap.png"
+            "/com/example/flappybird/img/yellowbird-upflap.png",
+            "/com/example/flappybird/img/redbird-upflap.png",
+            "/com/example/flappybird/img/bluebird-upflap.png"
     };
     public static final String[] BIRD_MID = {
-        "/com/example/flappybird/Picture/yellowbird-midflap.png",
-        "/com/example/flappybird/Picture/redbird-midflap.png",
-        "/com/example/flappybird/Picture/bluebird-midflap.png"
+            "/com/example/flappybird/img/yellowbird-midflap.png",
+            "/com/example/flappybird/img/redbird-midflap.png",
+            "/com/example/flappybird/img/bluebird-midflap.png"
     };
     public static final String[] BIRD_DOWN = {
-        "/com/example/flappybird/Picture/yellowbird-downflap.png",
-        "/com/example/flappybird/Picture/redbird-downflap.png",
-        "/com/example/flappybird/Picture/bluebird-downflap.png"
+            "/com/example/flappybird/img/yellowbird-downflap.png",
+            "/com/example/flappybird/img/redbird-downflap.png",
+            "/com/example/flappybird/img/bluebird-downflap.png"
     };
 
     // Pipes
-    public static final String PIPE_UPPER = "/com/example/flappybird/Picture/pipe_upper.png";
-    public static final String PIPE_LOWER = "/com/example/flappybird/Picture/pipe_under.png";
+    public static final String PIPE_UPPER = "/com/example/flappybird/img/pipe_upper.png";
+    public static final String PIPE_LOWER = "/com/example/flappybird/img/pipe_under.png";
 
     // Backgrounds & land
-    public static final String BG_DAY   = "/com/example/flappybird/Picture/background-day.png";
-    public static final String BG_NIGHT = "/com/example/flappybird/Picture/background-night.png";
-    public static final String LAND     = "/com/example/flappybird/Picture/land.png";
+    public static final String BG_DAY   = "/com/example/flappybird/img/background-day.png";
+    public static final String BG_NIGHT = "/com/example/flappybird/img/background-night.png";
+    public static final String LAND     = "/com/example/flappybird/img/land.png";
 
     // HUD
-    public static final String MESSAGE   = "/com/example/flappybird/Picture/message.png";
-    public static final String GAMEOVER  = "/com/example/flappybird/Picture/TTgameOver.png";
-    public static final String PAUSE_BTN = "/com/example/flappybird/Picture/pause.png";
-    public static final String PAUSE_TAB = "/com/example/flappybird/Picture/pauseTab.png";
-    public static final String RESUME    = "/com/example/flappybird/Picture/resume.png";
-    public static final String REPLAY    = "/com/example/flappybird/Picture/replay.png";
-    public static final String BUTTON    = "/com/example/flappybird/Picture/button.png";
-    public static final String ARROW_L   = "/com/example/flappybird/Picture/nextLeft.png";
-    public static final String ARROW_R   = "/com/example/flappybird/Picture/nextRight.png";
-    public static final String SOUND_ON  = "/com/example/flappybird/Picture/soundon.png";
-    public static final String SOUND_OFF = "/com/example/flappybird/Picture/soundoff.png";
+    public static final String MESSAGE   = "/com/example/flappybird/img/message.png";
+    public static final String GAMEOVER  = "/com/example/flappybird/img/TTgameOver.png";
+    public static final String PAUSE_BTN = "/com/example/flappybird/img/pause.png";
+    public static final String PAUSE_TAB = "/com/example/flappybird/img/pauseTab.png";
+    public static final String RESUME    = "/com/example/flappybird/img/resume.png";
+    public static final String REPLAY    = "/com/example/flappybird/img/replay.png";
+    public static final String BUTTON    = "/com/example/flappybird/img/button.png";
+    public static final String ARROW_L   = "/com/example/flappybird/img/nextLeft.png";
+    public static final String ARROW_R   = "/com/example/flappybird/img/nextRight.png";
+    public static final String SOUND_ON  = "/com/example/flappybird/img/soundon.png";
+    public static final String SOUND_OFF = "/com/example/flappybird/img/soundoff.png";
 
     // Numbers (0-9) large and small
     public static String largeNum(int d) {
-        return "/com/example/flappybird/Picture/BigNum/" + d + ".png";
+        return "/com/example/flappybird/img/BigNum/" + d + ".png";
     }
     public static String smallNum(int d) {
-        return "/com/example/flappybird/Picture/SmallNum/" + d + ".png";
+        return "/com/example/flappybird/img/SmallNum/" + d + ".png";
     }
 
     // Medals
     public static String medal(int idx) {
-        return "/com/example/flappybird/Picture/medal/" + idx + ".png";
+        return "/com/example/flappybird/img/medal/" + idx + ".png";
     }
 
     // Audio

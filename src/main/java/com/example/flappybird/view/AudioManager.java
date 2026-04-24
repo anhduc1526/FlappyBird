@@ -6,10 +6,11 @@ import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
 
 /**
- * VIEW helper — centralises all audio playback.
+ * VIEW helper — Quản lý toàn bộ audio playback.
  *
- * Mirrors Graphics::loadSound / playSound / loadMusic / playMusic / pauseMusic
- * from the original C++ graphics.cpp.
+ * Thay đổi so với phiên bản cũ:
+ *  - Dùng Sprite enum thay vì SpriteSheet String constants
+ *  - Thêm playPoint() được gọi từ GameController khi SCORE_UPDATED
  *
  * Design Pattern: Singleton.
  */
@@ -17,9 +18,9 @@ public final class AudioManager {
 
     private static AudioManager instance;
 
-    private MediaPlayer  musicPlayer;
-    private AudioClip    sfxClick, sfxFlap, sfxDead, sfxPoint;
-    private boolean      soundEnabled = true;
+    private MediaPlayer musicPlayer;
+    private AudioClip   sfxClick, sfxFlap, sfxDead, sfxPoint;
+    private boolean     soundEnabled = true;
 
     private AudioManager() {}
 
@@ -33,12 +34,12 @@ public final class AudioManager {
     public void loadAll() {
         ResourceLoader rl = ResourceLoader.getInstance();
 
-        sfxClick = rl.loadAudioClip(SpriteSheet.SFX_CLICK);
-        sfxFlap  = rl.loadAudioClip(SpriteSheet.SFX_FLAP);
-        sfxDead  = rl.loadAudioClip(SpriteSheet.SFX_DEAD);
-        sfxPoint = rl.loadAudioClip(SpriteSheet.SFX_POINT);
+        sfxClick = rl.loadAudioClip(Sprite.SFX_CLICK.path);
+        sfxFlap  = rl.loadAudioClip(Sprite.SFX_FLAP.path);
+        sfxDead  = rl.loadAudioClip(Sprite.SFX_DEAD.path);
+        sfxPoint = rl.loadAudioClip(Sprite.SFX_POINT.path);
 
-        Media music = rl.loadMedia(SpriteSheet.MUSIC);
+        Media music = rl.loadMedia(Sprite.MUSIC.path);
         if (music != null) {
             musicPlayer = new MediaPlayer(music);
             musicPlayer.setCycleCount(MediaPlayer.INDEFINITE);
@@ -49,9 +50,8 @@ public final class AudioManager {
 
     public void playMusic() {
         if (musicPlayer == null || !soundEnabled) return;
-        if (musicPlayer.getStatus() == MediaPlayer.Status.PAUSED) {
-            musicPlayer.play();
-        } else if (musicPlayer.getStatus() != MediaPlayer.Status.PLAYING) {
+        MediaPlayer.Status status = musicPlayer.getStatus();
+        if (status != MediaPlayer.Status.PLAYING) {
             musicPlayer.play();
         }
     }

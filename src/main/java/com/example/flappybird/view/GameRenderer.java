@@ -11,16 +11,24 @@ import javafx.scene.transform.Rotate;
 import java.util.List;
 
 /**
- * VIEW — All rendering logic (Canvas / GraphicsContext).
+ * VIEW — Toàn bộ logic render lên Canvas / GraphicsContext.
+ *
+ * Thay đổi so với phiên bản cũ:
+ *  - Dùng Sprite enum thay vì SpriteSheet String → type-safe
+ *  - Tất cả toạ độ HUD lấy từ HudLayout thay vì magic numbers
+ *  - Bỏ các getter getArrowLeft(), getReplay(),... (HudLayout đã đủ thông tin)
+ *
+ * Design Pattern: Passive View — chỉ vẽ, không giữ state game.
  */
 public class GameRenderer {
 
     private final GraphicsContext gc;
     private final ResourceLoader  rl = ResourceLoader.getInstance();
 
-    private final Image[][] birdFrames; // [type 0-2][0=up, 1=mid, 2=down]
+    // Bird frames: [type 0-2][0=up, 1=mid, 2=down]
+    private final Image[][] birdFrames;
     private final Image pipeUpper, pipeLower;
-    private final Image bgDay, bgNight, land;
+    private final Image bgDay, bgNight, landImg;
     private final Image message, gameOver;
     private final Image pauseBtn, pauseTab, resume, replay, button;
     private final Image arrowLeft, arrowRight;
@@ -32,38 +40,38 @@ public class GameRenderer {
 
         birdFrames = new Image[3][3];
         for (int t = 0; t < 3; t++) {
-            birdFrames[t][0] = rl.loadImage(SpriteSheet.BIRD_UP[t]);
-            birdFrames[t][1] = rl.loadImage(SpriteSheet.BIRD_MID[t]);
-            birdFrames[t][2] = rl.loadImage(SpriteSheet.BIRD_DOWN[t]);
+            birdFrames[t][0] = rl.loadImage(Sprite.birdUp(t));
+            birdFrames[t][1] = rl.loadImage(Sprite.birdMid(t));
+            birdFrames[t][2] = rl.loadImage(Sprite.birdDown(t));
         }
 
-        pipeUpper  = rl.loadImage(SpriteSheet.PIPE_UPPER);
-        pipeLower  = rl.loadImage(SpriteSheet.PIPE_LOWER);
-        bgDay      = rl.loadImage(SpriteSheet.BG_DAY);
-        bgNight    = rl.loadImage(SpriteSheet.BG_NIGHT);
-        land       = rl.loadImage(SpriteSheet.LAND);
-        message    = rl.loadImage(SpriteSheet.MESSAGE);
-        gameOver   = rl.loadImage(SpriteSheet.GAMEOVER);
-        pauseBtn   = rl.loadImage(SpriteSheet.PAUSE_BTN);
-        pauseTab   = rl.loadImage(SpriteSheet.PAUSE_TAB);
-        resume     = rl.loadImage(SpriteSheet.RESUME);
-        replay     = rl.loadImage(SpriteSheet.REPLAY);
-        button     = rl.loadImage(SpriteSheet.BUTTON);
-        arrowLeft  = rl.loadImage(SpriteSheet.ARROW_L);
-        arrowRight = rl.loadImage(SpriteSheet.ARROW_R);
-        soundOn    = rl.loadImage(SpriteSheet.SOUND_ON);
-        soundOff   = rl.loadImage(SpriteSheet.SOUND_OFF);
+        pipeUpper  = rl.loadImage(Sprite.PIPE_UPPER.path);
+        pipeLower  = rl.loadImage(Sprite.PIPE_LOWER.path);
+        bgDay      = rl.loadImage(Sprite.BG_DAY.path);
+        bgNight    = rl.loadImage(Sprite.BG_NIGHT.path);
+        landImg    = rl.loadImage(Sprite.LAND.path);
+        message    = rl.loadImage(Sprite.MESSAGE.path);
+        gameOver   = rl.loadImage(Sprite.GAMEOVER.path);
+        pauseBtn   = rl.loadImage(Sprite.PAUSE_BTN.path);
+        pauseTab   = rl.loadImage(Sprite.PAUSE_TAB.path);
+        resume     = rl.loadImage(Sprite.RESUME.path);
+        replay     = rl.loadImage(Sprite.REPLAY.path);
+        button     = rl.loadImage(Sprite.BUTTON.path);
+        arrowLeft  = rl.loadImage(Sprite.ARROW_L.path);
+        arrowRight = rl.loadImage(Sprite.ARROW_R.path);
+        soundOn    = rl.loadImage(Sprite.SOUND_ON.path);
+        soundOff   = rl.loadImage(Sprite.SOUND_OFF.path);
 
         largeNums = new Image[10];
         smallNums = new Image[10];
         for (int i = 0; i < 10; i++) {
-            largeNums[i] = rl.loadImage(SpriteSheet.largeNum(i));
-            smallNums[i] = rl.loadImage(SpriteSheet.smallNum(i));
+            largeNums[i] = rl.loadImage(Sprite.largeNum(i));
+            smallNums[i] = rl.loadImage(Sprite.smallNum(i));
         }
 
         medals = new Image[3];
         for (int i = 0; i < 3; i++) {
-            medals[i] = rl.loadImage(SpriteSheet.medal(i));
+            medals[i] = rl.loadImage(Sprite.medal(i));
         }
     }
 
@@ -77,29 +85,22 @@ public class GameRenderer {
 
     // ── Backgrounds ───────────────────────────────────────────────────────────
 
-    public void drawBackground(ScrollingBackground bg, boolean dayMode) {
-        drawScrolling(dayMode ? bgDay : bgNight, bg, 0);
+    public void drawBackground(ScrollingBackground bg, boolean isDay) {
+        drawScrolling(isDay ? bgDay : bgNight, bg, 0);
     }
 
     public void drawLand(ScrollingBackground landBg) {
-        drawScrolling(land, landBg, GameConstants.LAND_Y);
+        drawScrolling(landImg, landBg, GameConstants.LAND_Y);
     }
 
     /**
      * Vẽ 2 bản sao ảnh liền kề, không overlap, không gap.
-     *
-     * offset luôn trong [-width, 0):
-     *   - Bản 1 tại x = offset          (đang rời khỏi màn hình bên trái)
-     *   - Bản 2 tại x = offset + width  (tiếp nối ngay bên phải bản 1)
-     *
-     * Khi offset = 0:   bản1 tại 0, bản2 tại width  → bản1 lấp đầy màn hình
-     * Khi offset = -w/2: bản1 tại -w/2, bản2 tại w/2 → mỗi bản lấp nửa màn hình
-     * Khi offset → -width: bản1 sắp ra khỏi trái, bản2 gần lấp hết → rồi reset
+     * offset ∈ [-width, 0): bản1 tại offset, bản2 tại offset + width.
      */
     private void drawScrolling(Image img, ScrollingBackground bg, int y) {
         double off = bg.getOffset();
-        gc.drawImage(img, off,         y);  // bản đang trượt ra trái
-        gc.drawImage(img, off + bg.getWidth(), y);  // bản tiếp nối bên phải
+        gc.drawImage(img, off,                y);
+        gc.drawImage(img, off + bg.getWidth(), y);
     }
 
     // ── Pipes ─────────────────────────────────────────────────────────────────
@@ -111,7 +112,7 @@ public class GameRenderer {
         }
     }
 
-    // ── Bird ─────────────────────────────────────────────────────────────────
+    // ── Bird ──────────────────────────────────────────────────────────────────
 
     public void drawBird(BirdModel bird) {
         bird.updateAnimation();
@@ -126,16 +127,9 @@ public class GameRenderer {
         return 2;
     }
 
-    /**
-     * Renders an image rotated around its centre.
-     * Mirrors SDL_RenderCopyEx from the original C++ project.
-     */
     private void drawRotated(Image img, double x, double y, double angleDeg) {
-        double w  = img.getWidth();
-        double h  = img.getHeight();
-        double cx = x + w / 2;
-        double cy = y + h / 2;
-
+        double cx = x + img.getWidth()  / 2;
+        double cy = y + img.getHeight() / 2;
         gc.save();
         gc.transform(new Affine(new Rotate(angleDeg, cx, cy)));
         gc.drawImage(img, x, y);
@@ -145,26 +139,24 @@ public class GameRenderer {
     // ── HUD ───────────────────────────────────────────────────────────────────
 
     public void drawPauseButton() {
-        gc.drawImage(pauseBtn, 320, 10);
+        gc.drawImage(pauseBtn, HudLayout.PAUSE_BTN_X, HudLayout.PAUSE_BTN_Y);
     }
 
     public void drawLargeScore(int score) {
-        String s      = String.valueOf(score);
-        int    digitW = 30;
-        int    posX   = (GameConstants.SCREEN_WIDTH - digitW * s.length()) / 2;
+        String s    = String.valueOf(score);
+        int    posX = (GameConstants.SCREEN_WIDTH - HudLayout.LARGE_SCORE_DIGIT_W * s.length()) / 2;
         for (char c : s.toCharArray()) {
-            gc.drawImage(largeNums[c - '0'], posX, 10);
-            posX += digitW;
+            gc.drawImage(largeNums[c - '0'], posX, HudLayout.LARGE_SCORE_Y);
+            posX += HudLayout.LARGE_SCORE_DIGIT_W;
         }
     }
 
     public void drawSmallScore(int score, int posY) {
-        String s      = String.valueOf(score);
-        int    digitW = 21;
-        int    posX   = 271 - digitW * s.length();
+        String s    = String.valueOf(score);
+        int    posX = HudLayout.SMALL_SCORE_RIGHT_X - HudLayout.SMALL_SCORE_DIGIT_W * s.length();
         for (char c : s.toCharArray()) {
             gc.drawImage(smallNums[c - '0'], posX, posY);
-            posX += digitW;
+            posX += HudLayout.SMALL_SCORE_DIGIT_W;
         }
     }
 
@@ -176,51 +168,42 @@ public class GameRenderer {
 
     public void drawMenu(boolean soundEnabled) {
         int mx = (GameConstants.SCREEN_WIDTH  - GameConstants.MESSAGE_WIDTH)  / 2;
-        int my = (GameConstants.SCREEN_HEIGHT - GameConstants.MESSAGE_HEIGHT - GameConstants.LAND_HEIGHT) / 2;
+        int my = (GameConstants.SCREEN_HEIGHT - GameConstants.MESSAGE_HEIGHT
+                - GameConstants.LAND_HEIGHT) / 2;
         gc.drawImage(message, mx, my);
 
-        gc.drawImage(arrowLeft,  31, 317);
-        gc.drawImage(arrowRight, 90, 317);
-        gc.drawImage(arrowLeft,  0,  GameConstants.SCREEN_HEIGHT / 2.0);
-        gc.drawImage(arrowRight, GameConstants.SCREEN_WIDTH - 13, GameConstants.SCREEN_HEIGHT / 2.0);
+        gc.drawImage(arrowLeft,  HudLayout.ARROW_LEFT_X,  HudLayout.ARROW_LEFT_Y);
+        gc.drawImage(arrowRight, HudLayout.ARROW_RIGHT_X, HudLayout.ARROW_RIGHT_Y);
+        gc.drawImage(arrowLeft,  HudLayout.DAY_ARROW_L_X, HudLayout.DAY_ARROW_Y);
+        gc.drawImage(arrowRight, HudLayout.DAY_ARROW_R_X, HudLayout.DAY_ARROW_Y);
 
-        drawSoundIcon(soundEnabled, 10, 10);
+        drawSoundIcon(soundEnabled, HudLayout.SOUND_MENU_X, HudLayout.SOUND_MENU_Y);
     }
 
     // ── Game-Over panel ───────────────────────────────────────────────────────
 
+    /**
+     * @param slideOffset  giá trị ease-out (220→0); khi = 0 panel đã vào vị trí
+     */
     public void drawGameOverPanel(int score, int bestScore, int medalIndex, double slideOffset) {
-        int goX = (GameConstants.SCREEN_WIDTH  - GameConstants.GAMEOVER_WIDTH)  / 2;
-        int goY = (500 - GameConstants.GAMEOVER_HEIGHT) / 2;
-
-        gc.drawImage(gameOver, goX, goY + slideOffset);
+        gc.drawImage(gameOver, HudLayout.GAME_OVER_X, HudLayout.GAME_OVER_Y + slideOffset);
 
         if (slideOffset < 1) {
-            if (medalIndex >= 0) gc.drawImage(medals[medalIndex], 75, 263);
-            drawSmallScore(score,     263);
-            drawSmallScore(bestScore, 313);
-            gc.drawImage(replay, (GameConstants.SCREEN_WIDTH - 100) / 2, 360);
+            if (medalIndex >= 0) gc.drawImage(medals[medalIndex], HudLayout.MEDAL_X, HudLayout.MEDAL_Y);
+            drawSmallScore(score,     HudLayout.GO_SCORE_ROW_Y);
+            drawSmallScore(bestScore, HudLayout.GO_BEST_ROW_Y);
+            gc.drawImage(replay, HudLayout.REPLAY_X, HudLayout.REPLAY_Y);
         }
     }
 
     // ── Pause overlay ─────────────────────────────────────────────────────────
 
     public void drawPauseOverlay(int score, int bestScore, boolean soundEnabled) {
-        gc.drawImage(pauseTab, (GameConstants.SCREEN_WIDTH - 250) / 2, (GameConstants.SCREEN_HEIGHT - 128) / 2 - 17);
-        gc.drawImage(resume,   (GameConstants.SCREEN_WIDTH -  26) / 2, 365);
-        gc.drawImage(button,   105, 316);
-        drawSoundIcon(soundEnabled, 105, 266);
-        drawSmallScore(score,     263);
-        drawSmallScore(bestScore, 313);
+        gc.drawImage(pauseTab, HudLayout.PAUSE_TAB_X,    HudLayout.PAUSE_TAB_Y);
+        gc.drawImage(resume,   HudLayout.PAUSE_RESUME_X, HudLayout.PAUSE_RESUME_Y);
+        gc.drawImage(button,   HudLayout.PAUSE_DAY_BTN_X, HudLayout.PAUSE_DAY_BTN_Y);
+        drawSoundIcon(soundEnabled, HudLayout.PAUSE_SOUND_X, HudLayout.PAUSE_SOUND_Y);
+        drawSmallScore(score,     HudLayout.PAUSE_SCORE_ROW_Y);
+        drawSmallScore(bestScore, HudLayout.PAUSE_BEST_ROW_Y);
     }
-
-    // ── Getters ───────────────────────────────────────────────────────────────
-
-    public Image getArrowLeft()  { return arrowLeft; }
-    public Image getArrowRight() { return arrowRight; }
-    public Image getSoundOn()    { return soundOn; }
-    public Image getSoundOff()   { return soundOff; }
-    public Image getReplay()     { return replay; }
-    public Image getResume()     { return resume; }
-    public Image getButton()     { return button; }
 }

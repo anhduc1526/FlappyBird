@@ -1,5 +1,6 @@
 package com.example.flappybird.controller;
 
+import com.example.flappybird.model.GameEvent;
 import com.example.flappybird.model.GameModel;
 import com.example.flappybird.model.GameModel.Phase;
 import com.example.flappybird.util.GameConstants;
@@ -7,44 +8,65 @@ import com.example.flappybird.view.AudioManager;
 import com.example.flappybird.view.GameRenderer;
 import com.example.flappybird.view.GameView;
 import javafx.animation.AnimationTimer;
-import javafx.scene.input.KeyCode;
-import javafx.scene.input.MouseEvent;
 import javafx.stage.Stage;
 
 /**
- * CONTROLLER — Wires model, view, and input together.
+ * CONTROLLER — Điều phối model, view, input và game loop.
+ *
+ * Thay đổi so với phiên bản cũ:
+ *  - Logic death animation → DeathAnimController
+ *  - Logic input → InputHandler
+ *  - Toạ độ HUD → HudLayout
+ *  - String paths → Sprite enum
+ *  - Observer callbacks thay thế phần poll model.isQuit()
+ *
+ * GameController giờ chỉ còn ~100 dòng, đúng vai trò "thin orchestrator".
+ *
  * Design Pattern: MVC Controller + Game Loop (AnimationTimer).
  */
 public class GameController {
 
-    private final GameModel    model;
-    private final GameView     view;
-    private final GameRenderer renderer;
-    private final AudioManager audio = AudioManager.getInstance();
+    private final GameModel          model;
+    private final GameView           view;
+    private final GameRenderer       renderer;
+    private final AudioManager       audio    = AudioManager.getInstance();
+    private final DeathAnimController deathAnim = new DeathAnimController();
+    private final InputHandler       input;
 
-    // ── Death animation state ─────────────────────────────────────────────────
-    private boolean deathAnimActive = false;
-    // phase: 0 = bird tumbling down   1 = panel sliding in   2 = results (wait input)
-    private int     deathPhase     = 0;
-    private double  panelSlide     = 220.0;  // ease-out offset: 220 → 0
-    private boolean deadInputReady = false;
-
-    // ── Frame timing ─────────────────────────────────────────────────────────
-    private long lastNanos = 0;
-
-    // ── Main loop ─────────────────────────────────────────────────────────────
     private AnimationTimer loop;
+    private long           lastNanos = 0;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Constructor — khởi tạo toàn bộ MVC triad
+    // ─────────────────────────────────────────────────────────────────────────
 
     public GameController(Stage stage) {
         model    = new GameModel();
         view     = new GameView(stage);
         renderer = view.getRenderer();
 
-        audio.loadAll();
-        if (model.isSoundOn()) audio.playMusic();
+        // InputHandler cần biết khi nào người dùng bấm Replay
+        input = new InputHandler(model, audio, this::handleReplay);
 
-        attachInput();
+        audio.loadAll();
+
+        registerModelEvents();
+        input.attach(view.getScene(), deathAnim);
         startLoop();
+
+        if (model.isSoundOn()) audio.playMusic();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Observer registration
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void registerModelEvents() {
+        model.on(GameEvent.BIRD_DIED,      e -> deathAnim.begin(model.getBird()));
+        model.on(GameEvent.BIRD_DIED,      e -> { if (model.isSoundOn()) audio.playDead(); });
+        model.on(GameEvent.SCORE_UPDATED,  e -> { if (model.isSoundOn()) audio.playPoint(); });
+        model.on(GameEvent.SOUND_TOGGLED,  e -> audio.setSoundEnabled(model.isSoundOn()));
+        model.on(GameEvent.QUIT_REQUESTED, e -> handleQuit());
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -67,31 +89,22 @@ public class GameController {
 
     private void tick() {
         renderer.clear();
-        Phase phase = model.getPhase();
 
-        switch (phase) {
+        switch (model.getPhase()) {
             case MENU    -> tickMenu();
             case PLAYING -> tickPlaying();
             case DEAD    -> tickDead();
             case PAUSED  -> tickPaused();
         }
-
-        if (model.isQuit()) {
-            loop.stop();
-            audio.dispose();
-            System.exit(0);
-        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Per-phase render + logic
+    // Per-phase render
     // ─────────────────────────────────────────────────────────────────────────
 
     private void tickMenu() {
         model.menuTick();
-        renderer.drawBackground(
-                model.isDayMode() ? model.getDayBg() : model.getNightBg(),
-                model.isDayMode());
+        drawBackground();
         renderer.drawLand(model.getLand());
         renderer.drawBird(model.getBird());
         renderer.drawMenu(model.isSoundOn());
@@ -99,16 +112,11 @@ public class GameController {
 
     private void tickPlaying() {
         model.tick();
+        // model.tick() có thể fire BIRD_DIED → deathAnim.begin() đã gọi
+        // Nếu phase đã chuyển sang DEAD, tick tiếp theo sẽ xử lý tickDead()
+        if (model.getPhase() == Phase.DEAD) return;
 
-        // If model just transitioned to DEAD, start death animation
-        if (model.getPhase() == Phase.DEAD && !deathAnimActive) {
-            beginDeathAnimation();
-            return;
-        }
-
-        renderer.drawBackground(
-                model.isDayMode() ? model.getDayBg() : model.getNightBg(),
-                model.isDayMode());
+        drawBackground();
         renderer.drawPipes(model.getPipes());
         renderer.drawLand(model.getLand());
         renderer.drawBird(model.getBird());
@@ -117,17 +125,19 @@ public class GameController {
     }
 
     private void tickDead() {
-        if (!deathAnimActive) {
-            beginDeathAnimation();
-            return;
-        }
-        advanceDeathAnimation();
+        // Vẽ scene tĩnh (nền + pipes + đất + bird)
+        drawBackground();
+        renderer.drawPipes(model.getPipes());
+        renderer.drawLand(model.getLand());
+        renderer.drawBird(model.getBird());
+
+        // DeathAnimController xử lý phần còn lại (trượt panel, hiện replay)
+        deathAnim.advance(renderer, model.getBird(),
+                model.getScore(), model.getBestScore(), model.getMedalIndex());
     }
 
     private void tickPaused() {
-        renderer.drawBackground(
-                model.isDayMode() ? model.getDayBg() : model.getNightBg(),
-                model.isDayMode());
+        drawBackground();
         renderer.drawPipes(model.getPipes());
         renderer.drawLand(model.getLand());
         renderer.drawBird(model.getBird());
@@ -136,166 +146,26 @@ public class GameController {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Death animation
+    // Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void beginDeathAnimation() {
-        deathAnimActive = true;
-        deathPhase      = 0;
-        panelSlide      = 220.0;
-        deadInputReady  = false;
-        model.getBird().setAngle(90);    // snap nose-down on impact
-        model.getBird().resetDeathDy();
-        if (model.isSoundOn()) audio.playDead();
-    }
-
-    private void advanceDeathAnimation() {
-        drawDeadScene();
-
-        switch (deathPhase) {
-            case 0 -> {
-                // Bird falls down with real gravity + rotates nose-down to 90°
-                model.getBird().slideDown();
-                double a = model.getBird().getAngle();
-                if (a < 90) model.getBird().setAngle(Math.min(90, a + 6));
-
-                // Transition to panel slide when bird hits the ground
-                if (model.getBird().getY() >= GameConstants.LAND_Y - GameConstants.BIRD_HEIGHT - 2) {
-                    deathPhase = 1;
-                }
-            }
-            case 1 -> {
-                // Ease-out slide: step shrinks as panel approaches target
-                // Formula: step = max(2, remaining * 0.18)  →  fast start, soft landing
-                double step = Math.max(2.0, panelSlide * 0.18);
-                panelSlide -= step;
-                if (panelSlide <= 0) {
-                    panelSlide     = 0;
-                    deathPhase     = 2;
-                    deadInputReady = true;
-                }
-                renderer.drawGameOverPanel(model.getScore(), model.getBestScore(),
-                        model.getMedalIndex(), panelSlide);
-            }
-            case 2 -> {
-                // Fully shown — wait for replay click
-                renderer.drawGameOverPanel(model.getScore(), model.getBestScore(),
-                        model.getMedalIndex(), 0);
-            }
-        }
-    }
-
-    private void drawDeadScene() {
+    /** Vẽ nền ngày hoặc đêm tuỳ dayMode. */
+    private void drawBackground() {
         renderer.drawBackground(
                 model.isDayMode() ? model.getDayBg() : model.getNightBg(),
                 model.isDayMode());
-        renderer.drawPipes(model.getPipes());
-        renderer.drawLand(model.getLand());
-        renderer.drawBird(model.getBird());
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Input
-    // ─────────────────────────────────────────────────────────────────────────
-
-    private void attachInput() {
-        view.getScene().setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.SPACE)  handleFlap();
-            if (e.getCode() == KeyCode.P)      handlePause();
-            if (e.getCode() == KeyCode.M)      handleToggleSound();
-            if (e.getCode() == KeyCode.ESCAPE) model.requestQuit();
-        });
-
-        view.getScene().setOnMouseClicked(this::handleMouseClick);
+    /** Gọi bởi InputHandler khi người dùng bấm Replay. */
+    private void handleReplay() {
+        model.resetGame();
+        deathAnim.reset();
     }
 
-    private void handleFlap() {
-        Phase p = model.getPhase();
-        if (p == Phase.MENU) {
-            model.startGame();
-        } else if (p == Phase.PLAYING) {
-            model.birdFlap();
-            if (model.isSoundOn()) audio.playFlap();
-        }
-    }
-
-    private void handlePause() {
-        if (model.getPhase() == Phase.PLAYING) model.pauseGame();
-        else if (model.getPhase() == Phase.PAUSED) model.resumeGame();
-    }
-
-    private void handleToggleSound() {
-        model.toggleSound();
-        audio.setSoundEnabled(model.isSoundOn());
-    }
-
-    private void handleMouseClick(MouseEvent e) {
-        double mx = e.getX();
-        double my = e.getY();
-        Phase phase = model.getPhase();
-
-        if      (phase == Phase.MENU)                     handleMenuClick(mx, my);
-        else if (phase == Phase.PLAYING)                  handlePlayingClick(mx, my);
-        else if (phase == Phase.DEAD && deadInputReady)   handleDeadClick(mx, my);
-        else if (phase == Phase.PAUSED)                   handlePauseClick(mx, my);
-    }
-
-    private void handleMenuClick(double mx, double my) {
-        if (inBox(mx, my, 10, 10, 32, 24)) {
-            handleToggleSound();
-            if (model.isSoundOn()) audio.playClick();
-        } else if (inBox(mx, my, 31, 317, 13, 16)) {
-            model.changeBirdType(-1);
-            if (model.isSoundOn()) audio.playClick();
-        } else if (inBox(mx, my, 90, 317, 13, 16)) {
-            model.changeBirdType(1);
-            if (model.isSoundOn()) audio.playClick();
-        } else if (inBox(mx, my, 0, GameConstants.SCREEN_HEIGHT / 2.0, 13, 16)) {
-            model.toggleDay();
-            if (model.isSoundOn()) audio.playClick();
-        } else if (inBox(mx, my, GameConstants.SCREEN_WIDTH - 13, GameConstants.SCREEN_HEIGHT / 2.0, 13, 16)) {
-            model.toggleDay();
-            if (model.isSoundOn()) audio.playClick();
-        } else {
-            model.startGame();
-        }
-    }
-
-    private void handlePlayingClick(double mx, double my) {
-        if (inBox(mx, my, 320, 10, 26, 28)) {
-            if (model.isSoundOn()) audio.playClick();
-            model.pauseGame();
-        } else {
-            model.birdFlap();
-            if (model.isSoundOn()) audio.playFlap();
-        }
-    }
-
-    private void handleDeadClick(double mx, double my) {
-        if (inBox(mx, my, 125, 360, 100, 56)) {
-            if (model.isSoundOn()) audio.playClick();
-            model.resetGame();
-            deathAnimActive = false;
-            deathPhase      = 0;
-        }
-    }
-
-    private void handlePauseClick(double mx, double my) {
-        if (inBox(mx, my, 105, 266, 32, 24)) {
-            handleToggleSound();
-            if (model.isSoundOn()) audio.playClick();
-        } else if (inBox(mx, my, 105, 316, 26, 26)) {
-            model.toggleDay();
-            if (model.isSoundOn()) audio.playClick();
-        } else if (inBox(mx, my, 162, 365, 26, 28)) {
-            if (model.isSoundOn()) audio.playClick();
-            model.resumeGame();
-        }
-    }
-
-    // ── Utility ───────────────────────────────────────────────────────────────
-
-    private boolean inBox(double mx, double my, double x, double y, double w, double h) {
-        return mx >= x && mx <= x + w && my >= y && my <= y + h;
+    /** Gọi bởi Observer khi GameEvent.QUIT_REQUESTED. */
+    private void handleQuit() {
+        loop.stop();
+        audio.dispose();
+        System.exit(0);
     }
 }
